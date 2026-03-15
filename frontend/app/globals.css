@@ -1,0 +1,157 @@
+@import "tailwindcss";
+
+:root {
+  --bg-app: #212121;
+  --bg-sidebar: #171717;
+  --bg-sidebar-hover: #202020;
+  --bg-sidebar-active: #262626;
+  --bg-surface: #2a2a2a;
+  --bg-surface-elevated: #2f2f2f;
+  --bg-surface-strong: #343434;
+  --bg-dropdown: #2f2f2f;
+  --bg-backdrop: rgba(0, 0, 0, 0.54);
+  --border-soft: rgba(255, 255, 255, 0.055);
+  --border-strong: rgba(255, 255, 255, 0.1);
+  --text-primary: #ececec;
+  --text-secondary: #cfcfcf;
+  --text-muted: #a6a6a6;
+  --text-faint: #878787;
+  --icon-muted: #c8c8c8;
+  --icon-primary: #f3f3f3;
+  --shadow-floating: 0 20px 56px rgba(0, 0, 0, 0.34);
+  --shadow-subtle: 0 10px 26px rgba(0, 0, 0, 0.16);
+  --composer-width: 46.75rem;
+  --main-max-width: 54rem;
+  --sidebar-width: 16.25rem;
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable",
+    "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+* {
+  border-color: var(--border-soft);
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--text-primary);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.105);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.18);
+  background-clip: padding-box;
+}
+
+.bg-app {
+  background:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.018), transparent 30%),
+    var(--bg-app);
+}
+
+.bg-sidebar {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.012), transparent 20%),
+    var(--bg-sidebar);
+}
+
+.shadow-floating {
+  box-shadow: var(--shadow-floating);
+}
+
+.shadow-subtle {
+  box-shadow: var(--shadow-subtle);
+}
+
+.surface-composer {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.018),
+    0 4px 14px rgba(0, 0, 0, 0.11),
+    0 14px 32px rgba(0, 0, 0, 0.07);
+}
+
+.message-rich > :first-child {
+  margin-top: 0;
+}
+
+.message-rich > :last-child {
+  margin-bottom: 0;
+}
+
+.message-rich p,
+.message-rich ul,
+.message-rich ol,
+.message-rich blockquote,
+.message-rich pre,
+.message-rich table {
+  margin: 0.85rem 0;
+}
+
+.message-rich ul,
+.message-rich ol {
+  padding-left: 1.35rem;
+}
+
+.message-rich li {
+  margin: 0.25rem 0;
+}
+
+.message-rich a {
+  color: #8fd3ff;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.message-rich hr {
+  margin: 1rem 0;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.message-rich .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.35rem 0;
+}
