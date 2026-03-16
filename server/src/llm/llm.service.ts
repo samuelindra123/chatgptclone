@@ -1,5 +1,6 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { WebSearchResult, WebSearchService } from './web-search.service';
 
 type ChatRole = 'system' | 'user' | 'assistant';
 
@@ -8,10 +9,24 @@ type ChatMessage = {
   content: string;
 };
 
+type ToolStatusPayload = {
+  id: 'current_datetime' | 'web_search_duckduckgo';
+  status: 'running' | 'completed';
+  detail: string;
+  timestamp: string;
+  metadata?: Record<string, string | number | boolean>;
+  sources?: Array<{
+    title: string;
+    url: string;
+    snippet: string;
+  }>;
+};
+
 type StreamChatInput = {
   model?: string;
   messages: ChatMessage[];
   onDelta: (delta: string) => void;
+  onToolStatus?: (tool: ToolStatusPayload) => void;
   toolIds?: string[];
 };
 
@@ -26,6 +41,13 @@ type GenerateImageResult = {
   revisedPrompt: string;
   model: string;
   providerModel: string;
+};
+
+type RuntimeToolContext = {
+  currentDateTimeMessage?: string;
+  searchMessage?: string;
+  timeUsed: boolean;
+  searchUsed: boolean;
 };
 
 const XYNOOS_SYSTEM_PROMPT = `Kamu adalah AI assistant bernama xynoos_ai.
@@ -58,6 +80,13 @@ Batasan:
 - Kamu dapat menjelaskan identitas publik, fungsi, dan peranmu, tetapi tidak boleh mengarang detail pribadi pembuat.
 - Jika ada informasi yang belum tersedia, nyatakan keterbatasannya secara jujur.
 
+Tool backend internal:
+- Tool "current_datetime" sudah dieksekusi oleh backend di setiap request. Gunakan hasil tool itu sebagai sumber waktu, tanggal, hari, bulan, tahun, timezone, dan timestamp terbaru.
+- Tool "web_search_duckduckgo" bisa dieksekusi backend secara otomatis. Jika hasil pencarian web tersedia di konteks sistem, prioritaskan hasil itu untuk informasi yang butuh data terbaru atau yang sebelumnya tidak kamu ketahui.
+- Jika konteks web search tersedia, gunakan hanya sebagai referensi fakta dan rangkum dengan jelas. Jangan mengarang isi di luar konteks yang diberikan.
+- Jangan mengatakan bahwa kamu tidak punya akses ke waktu terbaru bila konteks "current_datetime" tersedia.
+- Jangan mengatakan bahwa kamu tidak bisa browsing bila konteks hasil "web_search_duckduckgo" sudah tersedia.
+
 Gaya respons:
 - Tetap membantu, akurat, profesional, dan terstruktur.
 - Gunakan bahasa yang mengikuti bahasa user.
@@ -66,105 +95,66 @@ Gaya respons:
 
 @Injectable()
 export class LlmService {
-  constructor(private readonly configService: ConfigService) {}
+  private readonly logger = new Logger(LlmService.name);
+  private readonly indonesiaTimeZones = [
+    'Asia/Jakarta',
+    'Asia/Makassar',
+    'Asia/Jayapura',
+  ] as const;
+
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly webSearchService: WebSearchService,
+  ) {}
 
   async streamChatCompletion(input: StreamChatInput) {
     if (input.toolIds?.includes('create-image')) {
       return this.streamImageGeneration(input);
     }
 
-    const apiUrl =
-      this.configService.get<string>('MODEL_API_URL') ||
-      'https://inference.do-ai.run/v1/chat/completions';
-    const apiKey = this.configService.get<string>('MODEL_ACCESS_KEY');
     const requestedModel = input.model?.trim() || 'xynoos-ai-v1';
     const publicModel = requestedModel === 'xynoos-ai-v1' ? 'Xynoos AI v1' : requestedModel;
-    const providerModel = this.resolveProviderModel(requestedModel);
+    const latestUserMessage = this.getLatestUserMessage(input.messages);
+    const runtimeContext = await this.buildRuntimeToolContext(
+      latestUserMessage,
+      false,
+      input.onToolStatus,
+    );
 
-    if (!apiKey) {
-      throw new InternalServerErrorException('MODEL_ACCESS_KEY is not configured');
-    }
-
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: providerModel,
-        stream: true,
-        messages: [
-          {
-            role: 'system',
-            content: XYNOOS_SYSTEM_PROMPT,
-          },
-          ...input.messages,
-        ],
-      }),
+    let finalContent = await this.generateChatCompletion({
+      model: input.model,
+      messages: input.messages,
+      additionalSystemMessages: this.toAdditionalSystemMessages(runtimeContext),
     });
 
-    if (!response.ok || !response.body) {
-      const errorText = await response.text().catch(() => '');
-      throw new InternalServerErrorException(
-        errorText || `Model request failed with status ${response.status}`,
+    if (
+      latestUserMessage &&
+      !runtimeContext.searchUsed &&
+      this.answerNeedsWebSearchFallback(finalContent)
+    ) {
+      const fallbackContext = await this.buildRuntimeToolContext(
+        latestUserMessage,
+        true,
+        input.onToolStatus,
       );
-    }
 
-    const decoder = new TextDecoder();
-    const reader = response.body.getReader();
-    let buffer = '';
-    let fullText = '';
-    let resolvedModel = publicModel;
-
-    while (true) {
-      const { done, value } = await reader.read();
-
-      if (done) {
-        break;
-      }
-
-      buffer += decoder.decode(value, { stream: true });
-      const events = buffer.split('\n\n');
-      buffer = events.pop() ?? '';
-
-      for (const eventBlock of events) {
-        const parsed = this.parseEventBlock(eventBlock);
-
-        if (!parsed) {
-          continue;
-        }
-
-        if (parsed === '[DONE]') {
-          return {
-            content: fullText.trim(),
-          model: resolvedModel,
-        };
-        }
-
-        const payload = JSON.parse(parsed) as {
-          model?: string;
-          choices?: Array<{
-            delta?: {
-              content?: string;
-            };
-          }>;
-        };
-
-        const delta = payload.choices?.[0]?.delta?.content ?? '';
-
-        if (!delta) {
-          continue;
-        }
-
-        fullText += delta;
-        input.onDelta(delta);
+      if (fallbackContext.searchUsed) {
+        finalContent = await this.generateChatCompletion({
+          model: input.model,
+          messages: input.messages,
+          additionalSystemMessages: this.toAdditionalSystemMessages(fallbackContext),
+        });
       }
     }
+
+    const normalizedContent =
+      finalContent.trim() || 'Maaf, saya belum bisa menghasilkan jawaban untuk pesan itu.';
+
+    this.emitTextAsChunks(normalizedContent, input.onDelta);
 
     return {
-      content: fullText.trim(),
-      model: resolvedModel,
+      content: normalizedContent,
+      model: publicModel,
     };
   }
 
@@ -280,28 +270,471 @@ Tugas:
     };
   }
 
+  private async buildRuntimeToolContext(
+    latestUserMessage: string,
+    forceSearch = false,
+    onToolStatus?: StreamChatInput['onToolStatus'],
+  ): Promise<RuntimeToolContext> {
+    const currentDateTimeMessage = this.buildCurrentDateTimeMessage();
+    const shouldUseCurrentTime =
+      forceSearch || this.shouldUseCurrentDateTime(latestUserMessage);
+
+    if (shouldUseCurrentTime) {
+      const activeTimeZone = this.resolveServerTimeZone();
+      this.emitToolStatus(onToolStatus, {
+        id: 'current_datetime',
+        status: 'running',
+        detail: 'Mengecek waktu Indonesia terbaru',
+        metadata: {
+          region: 'Indonesia',
+          timezone: activeTimeZone,
+          stage: 'resolve-timezone',
+        },
+      });
+      this.emitToolStatus(onToolStatus, {
+        id: 'current_datetime',
+        status: 'completed',
+        detail: `Waktu Indonesia aktif: ${activeTimeZone}`,
+        metadata: {
+          region: 'Indonesia',
+          timezone: activeTimeZone,
+          stage: 'complete',
+        },
+      });
+    }
+
+    if (!latestUserMessage) {
+      return {
+        currentDateTimeMessage: shouldUseCurrentTime ? currentDateTimeMessage : undefined,
+        timeUsed: shouldUseCurrentTime,
+        searchUsed: false,
+      };
+    }
+
+    const shouldSearch =
+      forceSearch || this.shouldSearchBeforeAnswer(latestUserMessage);
+
+    if (!shouldSearch) {
+      return {
+        currentDateTimeMessage: shouldUseCurrentTime ? currentDateTimeMessage : undefined,
+        timeUsed: shouldUseCurrentTime,
+        searchUsed: false,
+      };
+    }
+
+    try {
+      this.emitToolStatus(onToolStatus, {
+        id: 'web_search_duckduckgo',
+        status: 'running',
+        detail: `Menyiapkan pencarian untuk: ${latestUserMessage.slice(0, 72)}`,
+        metadata: {
+          query: latestUserMessage.slice(0, 120),
+          mode: forceSearch ? 'fallback' : 'proactive',
+          stage: 'prepare-query',
+        },
+      });
+      this.emitToolStatus(onToolStatus, {
+        id: 'web_search_duckduckgo',
+        status: 'running',
+        detail: `Menelusuri web untuk: ${latestUserMessage.slice(0, 72)}`,
+        metadata: {
+          query: latestUserMessage.slice(0, 120),
+          mode: forceSearch ? 'fallback' : 'proactive',
+          stage: 'fetch-results',
+        },
+      });
+      const maxResults = this.resolveSearchResultLimit(latestUserMessage);
+      const searchResults = await this.webSearchService.search(
+        latestUserMessage,
+        maxResults,
+      );
+
+      if (searchResults.length === 0) {
+        this.emitToolStatus(onToolStatus, {
+          id: 'web_search_duckduckgo',
+          status: 'completed',
+          detail: 'Pencarian selesai tanpa hasil yang relevan',
+          metadata: {
+            query: latestUserMessage.slice(0, 120),
+            resultCount: 0,
+            stage: 'complete',
+          },
+        });
+        return {
+          currentDateTimeMessage: shouldUseCurrentTime ? currentDateTimeMessage : undefined,
+          timeUsed: shouldUseCurrentTime,
+          searchUsed: false,
+        };
+      }
+
+      this.emitToolStatus(onToolStatus, {
+        id: 'web_search_duckduckgo',
+        status: 'running',
+        detail: `Merangkum ${searchResults.length} sumber web teratas`,
+        metadata: {
+          query: latestUserMessage.slice(0, 120),
+          resultCount: searchResults.length,
+          stage: 'summarize-results',
+          sourceDomains: searchResults
+            .slice(0, 4)
+            .map((result) => {
+              try {
+                return new URL(result.url).hostname.replace(/^www\./, '');
+              } catch {
+                return result.url;
+              }
+            })
+            .join(', '),
+        },
+        sources: searchResults.slice(0, 4).map((result) => ({
+          title: result.title,
+          url: result.url,
+          snippet: result.snippet,
+        })),
+      });
+      this.emitToolStatus(onToolStatus, {
+        id: 'web_search_duckduckgo',
+        status: 'completed',
+        detail: `Ditemukan ${searchResults.length} sumber web yang relevan`,
+        metadata: {
+          query: latestUserMessage.slice(0, 120),
+          resultCount: searchResults.length,
+          topSource: searchResults[0]?.url ?? '',
+          stage: 'complete',
+        },
+        sources: searchResults.slice(0, 6).map((result) => ({
+          title: result.title,
+          url: result.url,
+          snippet: result.snippet,
+        })),
+      });
+
+      return {
+        currentDateTimeMessage: shouldUseCurrentTime ? currentDateTimeMessage : undefined,
+        timeUsed: shouldUseCurrentTime,
+        searchMessage: this.buildSearchMessage(latestUserMessage, searchResults),
+        searchUsed: true,
+      };
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unknown DuckDuckGo search error';
+      this.logger.warn(`Automatic web search skipped: ${message}`);
+        this.emitToolStatus(onToolStatus, {
+          id: 'web_search_duckduckgo',
+          status: 'completed',
+          detail: 'Pencarian web dilewati karena terjadi kendala',
+          metadata: {
+            query: latestUserMessage.slice(0, 120),
+            error: true,
+            stage: 'error',
+          },
+        });
+
+      return {
+        currentDateTimeMessage: shouldUseCurrentTime ? currentDateTimeMessage : undefined,
+        timeUsed: shouldUseCurrentTime,
+        searchUsed: false,
+      };
+    }
+  }
+
+  private buildCurrentDateTimeMessage() {
+    const now = new Date();
+    const timezone = this.resolveServerTimeZone();
+    const formatted = new Intl.DateTimeFormat('id-ID', {
+      dateStyle: 'full',
+      timeStyle: 'long',
+      timeZone: timezone,
+    }).format(now);
+
+    return [
+      '[BUILTIN_TOOL: current_datetime]',
+      `- timezone: ${timezone}`,
+      `- datetime_iso_utc: ${now.toISOString()}`,
+      `- datetime_local: ${formatted}`,
+      `- unix_ms: ${now.getTime()}`,
+      '- Instruksi: gunakan data waktu ini sebagai sumber tanggal/jam/hari/bulan/tahun terbaru.',
+    ].join('\n');
+  }
+
+  private buildSearchMessage(query: string, results: WebSearchResult[]) {
+    return [
+      '[BUILTIN_TOOL: web_search_duckduckgo]',
+      `- query: ${query}`,
+      `- fetched_at_utc: ${new Date().toISOString()}`,
+      '- ringkasan_hasil:',
+      ...results.map(
+        (result, index) =>
+          `${index + 1}. ${result.title}\nurl: ${result.url}\nsnippet: ${result.snippet || '-'}`,
+      ),
+      '- Instruksi: gunakan hasil ini untuk menjawab pertanyaan yang butuh informasi terbaru atau yang sebelumnya tidak diketahui.',
+    ].join('\n');
+  }
+
+  private toAdditionalSystemMessages(context: RuntimeToolContext): ChatMessage[] {
+    return [
+      ...(context.currentDateTimeMessage
+        ? [
+            {
+              role: 'system' as const,
+              content: context.currentDateTimeMessage,
+            },
+          ]
+        : []),
+      ...(context.searchMessage
+        ? [
+            {
+              role: 'system' as const,
+              content: context.searchMessage,
+            },
+          ]
+        : []),
+    ];
+  }
+
+  private shouldSearchBeforeAnswer(message: string) {
+    const normalized = message.toLowerCase();
+    const searchKeywords = [
+      'terbaru',
+      'latest',
+      'today',
+      'hari ini',
+      'sekarang',
+      'current',
+      'update',
+      'breaking',
+      'news',
+      'berita',
+      'harga',
+      'price',
+      'cuaca',
+      'weather',
+      'jadwal',
+      'schedule',
+      'skor',
+      'score',
+      'presiden',
+      'ceo',
+      'kurs',
+      'crypto',
+      'bitcoin',
+      'saham',
+      'rilis',
+      'release',
+      'versi terbaru',
+      'siapa sekarang',
+    ];
+
+    if (searchKeywords.some((keyword) => normalized.includes(keyword))) {
+      return true;
+    }
+
+    const likelyFactualQuestion =
+      /(\?$)|^(siapa|apa|kapan|berapa|bagaimana|why|what|when|who|how|which)\b/i.test(
+        message.trim(),
+      );
+    const hasNamedEntityShape =
+      /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3}\b/.test(message) ||
+      /\b(inc|corp|ltd|llc|indo|indonesia|jakarta|google|openai|meta|tesla|apple|microsoft)\b/i.test(
+        normalized,
+      );
+    const asksForEvidence =
+      /\b(sumber|source|referensi|reference|rujukan|link)\b/i.test(normalized);
+
+    return likelyFactualQuestion && (hasNamedEntityShape || asksForEvidence);
+  }
+
+  private shouldUseCurrentDateTime(message: string) {
+    const normalized = message.toLowerCase();
+    const timeKeywords = [
+      'jam',
+      'waktu',
+      'tanggal',
+      'hari ini',
+      'sekarang',
+      'today',
+      'current time',
+      'current date',
+      'besok',
+      'kemarin',
+      'minggu ini',
+      'bulan ini',
+      'tahun ini',
+      'timezone',
+      'utc',
+      'pagi',
+      'siang',
+      'sore',
+      'malam',
+    ];
+
+    if (timeKeywords.some((keyword) => normalized.includes(keyword))) {
+      return true;
+    }
+
+    return /\b(hari|tanggal|jam|waktu|bulan|tahun|weekend|weekday)\b/i.test(
+      normalized,
+    );
+  }
+
+  private resolveSearchResultLimit(message: string) {
+    const normalized = message.toLowerCase();
+    const configuredMax = Number.parseInt(
+      this.configService.get<string>('DUCKDUCKGO_SEARCH_MAX_RESULTS') || '12',
+      10,
+    );
+    const hardMax =
+      Number.isFinite(configuredMax) && configuredMax >= 4 ? configuredMax : 12;
+
+    let target = 5;
+    const wordCount = message.trim().split(/\s+/).filter(Boolean).length;
+    const clauseCount = message.split(/[?,.&]/).filter((part) => part.trim().length > 0).length;
+
+    if (
+      [
+        'bandingkan',
+        'compare',
+        'comparison',
+        'vs',
+        'versus',
+        'rekomendasi',
+        'recommend',
+        'best',
+        'top',
+        'daftar',
+        'list',
+        'opsi',
+        'alternatif',
+        'beberapa',
+        'lengkap',
+        'detail',
+        'mendalam',
+        'analisis',
+        'riset',
+      ].some((keyword) => normalized.includes(keyword))
+    ) {
+      target = 10;
+    } else if (
+      [
+        'terbaru',
+        'latest',
+        'hari ini',
+        'today',
+        'update',
+        'breaking',
+        'news',
+        'berita',
+        'harga',
+        'price',
+        'cuaca',
+        'weather',
+        'jadwal',
+        'schedule',
+        'skor',
+        'score',
+      ].some((keyword) => normalized.includes(keyword))
+    ) {
+      target = 6;
+    } else if (
+      ['siapa', 'what', 'apa', 'kapan', 'when', 'berapa', 'how much', 'where', 'dimana'].some(
+        (keyword) => normalized.includes(keyword),
+      )
+    ) {
+      target = 4;
+    }
+
+    if (wordCount >= 14) {
+      target += 2;
+    }
+
+    if (clauseCount >= 3) {
+      target += 1;
+    }
+
+    return Math.max(4, Math.min(target, hardMax));
+  }
+
+  private resolveServerTimeZone() {
+    const configuredTimeZone = this.configService.get<string>('SERVER_TIMEZONE')?.trim();
+    const normalizedConfiguredTimeZone = configuredTimeZone?.toLowerCase();
+
+    if (
+      configuredTimeZone &&
+      normalizedConfiguredTimeZone !== 'system' &&
+      normalizedConfiguredTimeZone !== 'auto' &&
+      this.indonesiaTimeZones.includes(
+        configuredTimeZone as (typeof this.indonesiaTimeZones)[number],
+      )
+    ) {
+      return configuredTimeZone;
+    }
+
+    const systemTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+    if (
+      systemTimeZone &&
+      this.indonesiaTimeZones.includes(
+        systemTimeZone as (typeof this.indonesiaTimeZones)[number],
+      )
+    ) {
+      return systemTimeZone;
+    }
+
+    return 'Asia/Jakarta';
+  }
+
+  private answerNeedsWebSearchFallback(answer: string) {
+    const normalized = answer.toLowerCase();
+    const uncertaintyPatterns = [
+      'saya tidak tahu',
+      'saya belum tahu',
+      'saya tidak memiliki informasi',
+      'saya tidak punya informasi',
+      'saya tidak dapat memastikan',
+      'informasi tersebut tidak tersedia',
+      'saya tidak menemukan informasi',
+      "i don't know",
+      'i do not know',
+      'i do not have information',
+      'i cannot verify',
+      'not enough information',
+      'information is not available',
+    ];
+
+    return uncertaintyPatterns.some((pattern) => normalized.includes(pattern));
+  }
+
+  private emitToolStatus(
+    onToolStatus: StreamChatInput['onToolStatus'],
+    tool: Omit<ToolStatusPayload, 'timestamp'>,
+  ) {
+    onToolStatus?.({
+      ...tool,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  private getLatestUserMessage(messages: ChatMessage[]) {
+    return messages
+      .toReversed()
+      .find((message) => message.role === 'user')
+      ?.content?.trim() ?? '';
+  }
+
+  private emitTextAsChunks(content: string, onDelta: (delta: string) => void) {
+    const chunkSize = 120;
+
+    for (let index = 0; index < content.length; index += chunkSize) {
+      onDelta(content.slice(index, index + chunkSize));
+    }
+  }
+
   private resolveProviderModel(requestedModel: string) {
     if (requestedModel === 'xynoos-ai-v1') {
-      return (
-        this.configService.get<string>('DEFAULT_CHAT_MODEL') || 'kimi-k2.5'
-      );
+      return this.configService.get<string>('DEFAULT_CHAT_MODEL') || 'kimi-k2.5';
     }
 
     return requestedModel;
-  }
-
-  private parseEventBlock(block: string) {
-    const dataLines = block
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.startsWith('data:'))
-      .map((line) => line.slice('data:'.length).trim());
-
-    if (dataLines.length === 0) {
-      return null;
-    }
-
-    return dataLines.join('\n');
   }
 
   private async streamImageGeneration(input: StreamChatInput) {
@@ -340,6 +773,7 @@ Tugas:
     model?: string;
     messages: ChatMessage[];
     includeDefaultSystemPrompt?: boolean;
+    additionalSystemMessages?: ChatMessage[];
   }) {
     const apiUrl =
       this.configService.get<string>('MODEL_API_URL') ||
@@ -370,6 +804,7 @@ Tugas:
                   content: XYNOOS_SYSTEM_PROMPT,
                 },
               ]),
+          ...(input.additionalSystemMessages ?? []),
           ...input.messages,
         ],
       }),

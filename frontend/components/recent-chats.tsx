@@ -15,6 +15,7 @@ type MenuState = {
 export function RecentChats() {
   const recentChats = useChatUiStore((state) => state.recentChats);
   const authStatus = useChatUiStore((state) => state.authStatus);
+  const desktopSidebarCollapsed = useChatUiStore((state) => state.desktopSidebarCollapsed);
   const activateRecentChat = useChatUiStore((state) => state.activateRecentChat);
   const renameRecentChat = useChatUiStore((state) => state.renameRecentChat);
   const deleteRecentChat = useChatUiStore((state) => state.deleteRecentChat);
@@ -70,21 +71,28 @@ export function RecentChats() {
   const menuChatId = menuState?.chatId ?? null;
 
   return (
-    <section className="min-h-0 flex-1 pt-6">
-      <div className="mb-2 px-2.5">
-        <p className="text-[11.5px] font-medium tracking-[-0.01em] text-[var(--text-faint)]">Terkini</p>
-      </div>
+    <section className="flex min-h-0 flex-1 flex-col pt-6">
+      {!desktopSidebarCollapsed ? (
+        <div className="mb-2 px-2.5">
+          <p className="text-[11.5px] font-medium tracking-[-0.01em] text-[var(--text-faint)]">Terkini</p>
+        </div>
+      ) : null}
       {authStatus !== "authenticated" ? (
-        <p className="px-2.5 text-[12.5px] leading-5 text-white/42">
+        <p className={cn("text-[12.5px] leading-5 text-white/42", desktopSidebarCollapsed ? "px-1 text-center" : "px-2.5")}>
           Login dengan Google untuk menyimpan dan melihat riwayat chat.
         </p>
       ) : null}
       {authStatus === "authenticated" && recentChats.length === 0 ? (
-        <p className="px-2.5 text-[12.5px] leading-5 text-white/42">
+        <p className={cn("text-[12.5px] leading-5 text-white/42", desktopSidebarCollapsed ? "px-1 text-center" : "px-2.5")}>
           Belum ada conversation yang tersimpan.
         </p>
       ) : null}
-      <div className="space-y-0.5 overflow-y-auto pr-1">
+      <div
+        className={cn(
+          "min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-1",
+          desktopSidebarCollapsed ? "pr-0" : ""
+        )}
+      >
         {recentChats.map((chat) => (
           <div
             key={chat.id}
@@ -141,11 +149,21 @@ export function RecentChats() {
                   <button
                     type="button"
                     onClick={() => void activateRecentChat(chat.id)}
-                    className="flex h-9 min-w-0 flex-1 items-center px-2.5 text-left text-[13px] tracking-[-0.01em]"
+                    className={cn(
+                      "flex h-9 min-w-0 flex-1 items-center text-left text-[13px] tracking-[-0.01em]",
+                      desktopSidebarCollapsed ? "justify-center px-0" : "px-2.5"
+                    )}
+                    title={chat.title}
                   >
-                    <span className="truncate leading-5">{chat.title}</span>
+                    {!desktopSidebarCollapsed ? (
+                      <span className="truncate leading-5">{chat.title}</span>
+                    ) : (
+                      <span className="max-w-[2.1rem] truncate text-[11px] uppercase text-white/56">
+                        {chat.title.slice(0, 2)}
+                      </span>
+                    )}
                   </button>
-                  <div className="pr-1">
+                  {!desktopSidebarCollapsed ? <div className="pr-1">
                     <button
                       type="button"
                       onClick={(event) => {
@@ -173,7 +191,7 @@ export function RecentChats() {
                     >
                       <MoreHorizontal className="size-4" strokeWidth={2.1} />
                     </button>
-                  </div>
+                  </div> : null}
                 </div>
               </>
             )}

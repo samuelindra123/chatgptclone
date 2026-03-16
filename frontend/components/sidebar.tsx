@@ -1,9 +1,8 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { Menu } from "lucide-react";
+import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { ChatGptKnotIcon } from "@/components/chatgpt-knot-icon";
-import { SidebarToggleIcon } from "@/components/chatgpt-ui-icons";
 import { RecentChats } from "@/components/recent-chats";
 import { SidebarNav } from "@/components/sidebar-nav";
 import { useChatUiStore } from "@/lib/store/chatgpt-ui";
@@ -11,29 +10,47 @@ import { cn } from "@/lib/utils";
 
 export function Sidebar() {
   const mobileSidebarOpen = useChatUiStore((state) => state.mobileSidebarOpen);
+  const desktopSidebarCollapsed = useChatUiStore((state) => state.desktopSidebarCollapsed);
   const setMobileSidebarOpen = useChatUiStore((state) => state.setMobileSidebarOpen);
+  const toggleDesktopSidebar = useChatUiStore((state) => state.toggleDesktopSidebar);
 
   function renderSidebarPanel() {
     return (
-      <aside className="bg-sidebar flex h-full w-[var(--sidebar-width)] flex-col border-r border-white/[0.04] px-2.5 pb-3 pt-2.5">
+      <aside
+        className={cn(
+          "bg-sidebar flex h-full flex-col border-r border-white/[0.04] pb-3 pt-2.5 transition-[width,padding] duration-200",
+          desktopSidebarCollapsed ? "w-[4.5rem] px-2" : "w-[var(--sidebar-width)] px-2.5"
+        )}
+      >
         <div className="mb-2 flex items-center justify-between px-1">
-          <button
-            type="button"
-            className="flex size-9 items-center justify-center rounded-xl text-[var(--text-primary)] transition-colors duration-150 hover:bg-[var(--bg-sidebar-hover)]"
-            aria-label="Beranda Xynoos AI"
-          >
-            <ChatGptKnotIcon className="size-[1.28rem]" />
-          </button>
+          {!desktopSidebarCollapsed ? (
+            <button
+              type="button"
+              className="flex size-9 items-center justify-center rounded-xl text-[var(--text-primary)] transition-colors duration-150 hover:bg-[var(--bg-sidebar-hover)]"
+              aria-label="Beranda Xynoos AI"
+            >
+              <ChatGptKnotIcon className="size-[1.28rem]" />
+            </button>
+          ) : (
+            <div className="size-9" />
+          )}
           <button
             type="button"
             className="flex size-9 items-center justify-center rounded-xl text-white/72 transition-colors duration-150 hover:bg-[var(--bg-sidebar-hover)] hover:text-[var(--icon-primary)]"
-            aria-label="Tutup sidebar"
+            aria-label={desktopSidebarCollapsed ? "Buka sidebar" : "Tutup sidebar"}
+            onClick={toggleDesktopSidebar}
           >
-            <SidebarToggleIcon className="size-[17px]" />
+            {desktopSidebarCollapsed ? (
+              <PanelLeftOpen className="size-[17px]" strokeWidth={2.05} />
+            ) : (
+              <PanelLeftClose className="size-[17px]" strokeWidth={2.05} />
+            )}
           </button>
         </div>
-        <SidebarNav />
-        <RecentChats />
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <SidebarNav />
+          {!desktopSidebarCollapsed ? <RecentChats /> : null}
+        </div>
       </aside>
     );
   }

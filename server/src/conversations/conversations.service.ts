@@ -400,6 +400,9 @@ export class ConversationsService {
           assistantContent += delta;
           this.writeEvent(response, 'delta', { text: delta });
         },
+        onToolStatus: (tool) => {
+          this.writeEvent(response, 'tool', tool);
+        },
         toolIds: payload.toolIds,
       });
 

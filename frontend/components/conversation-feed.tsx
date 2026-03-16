@@ -182,6 +182,7 @@ export function ConversationFeed() {
                   content={message.content}
                   isStreaming={message.isStreaming}
                   isImageGeneration={message.isImageGeneration}
+                  toolStates={message.toolStates}
                 />
               )}
               {message.attachmentCount > 0 && (!message.attachments || message.attachments.length === 0) ? (

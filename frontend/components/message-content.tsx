@@ -1,6 +1,8 @@
 "use client";
 
 import { Download, Link2 } from "lucide-react";
+import { AssistantToolStrip } from "@/components/assistant-tool-strip";
+import type { ToolState } from "@/lib/api";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import ReactMarkdown from "react-markdown";
@@ -13,6 +15,7 @@ type MessageContentProps = {
   content: string;
   isStreaming?: boolean;
   isImageGeneration?: boolean;
+  toolStates?: ToolState[];
 };
 
 function getLanguageLabel(className?: string) {
@@ -109,17 +112,25 @@ function ImageGenerationStatus({ content }: { content: string }) {
   );
 }
 
-export function MessageContent({ content, isStreaming = false, isImageGeneration = false }: MessageContentProps) {
+export function MessageContent({
+  content,
+  isStreaming = false,
+  isImageGeneration = false,
+  toolStates
+}: MessageContentProps) {
   if (!content && isStreaming) {
     if (isImageGeneration) {
       return <ImageGenerationStatus content="" />;
     }
 
     return (
-      <div className="flex items-center gap-1.5 py-1 text-white/60">
-        <span className="size-2 animate-pulse rounded-full bg-white/45 [animation-delay:-0.2s]" />
-        <span className="size-2 animate-pulse rounded-full bg-white/45 [animation-delay:-0.1s]" />
-        <span className="size-2 animate-pulse rounded-full bg-white/45" />
+      <div>
+        <AssistantToolStrip toolStates={toolStates} isStreaming={isStreaming} />
+        <div className="flex items-center gap-1.5 py-1 text-white/60">
+          <span className="size-2 animate-pulse rounded-full bg-white/45 [animation-delay:-0.2s]" />
+          <span className="size-2 animate-pulse rounded-full bg-white/45 [animation-delay:-0.1s]" />
+          <span className="size-2 animate-pulse rounded-full bg-white/45" />
+        </div>
       </div>
     );
   }
@@ -129,76 +140,79 @@ export function MessageContent({ content, isStreaming = false, isImageGeneration
   }
 
   return (
-    <div className="message-rich text-[15px] leading-7 tracking-[-0.01em]">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[rehypeKatex]}
-        components={{
-          pre: ({ children }) => <>{children}</>,
-          code: ({ className, children, node }) => {
-            const language = getLanguageLabel(className);
-            const isInline = !node?.position?.start.line || !className;
+    <div>
+      <AssistantToolStrip toolStates={toolStates} isStreaming={isStreaming} />
+      <div className="message-rich text-[15px] leading-7 tracking-[-0.01em]">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, remarkMath]}
+          rehypePlugins={[rehypeKatex]}
+          components={{
+            pre: ({ children }) => <>{children}</>,
+            code: ({ className, children, node }) => {
+              const language = getLanguageLabel(className);
+              const isInline = !node?.position?.start.line || !className;
 
-            if (isInline) {
+              if (isInline) {
+                return (
+                  <code className="rounded-md bg-white/10 px-1.5 py-0.5 text-[0.9em] text-[#ffd89a]">
+                    {children}
+                  </code>
+                );
+              }
+
               return (
-                <code className="rounded-md bg-white/10 px-1.5 py-0.5 text-[0.9em] text-[#ffd89a]">
-                  {children}
-                </code>
-              );
-            }
-
-            return (
-              <div className="my-4 overflow-hidden rounded-2xl border border-white/10 bg-[#111111]">
-                <div className="flex items-center justify-between border-b border-white/8 bg-white/[0.03] px-4 py-2.5">
-                  <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/52">
-                    {language ?? "plain text"}
-                  </span>
+                <div className="my-4 overflow-hidden rounded-2xl border border-white/10 bg-[#111111]">
+                  <div className="flex items-center justify-between border-b border-white/8 bg-white/[0.03] px-4 py-2.5">
+                    <span className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/52">
+                      {language ?? "plain text"}
+                    </span>
+                  </div>
+                  <SyntaxHighlighter
+                    language={language ?? "text"}
+                    style={oneDark}
+                    PreTag="div"
+                    customStyle={{
+                      margin: 0,
+                      padding: "1rem",
+                      background: "transparent",
+                      overflowX: "auto",
+                      fontSize: "13px",
+                      lineHeight: "1.7"
+                    }}
+                    codeTagProps={{
+                      className: cn("font-mono text-[13px]", className)
+                    }}
+                  >
+                    {String(children).replace(/\n$/, "")}
+                  </SyntaxHighlighter>
                 </div>
-                <SyntaxHighlighter
-                  language={language ?? "text"}
-                  style={oneDark}
-                  PreTag="div"
-                  customStyle={{
-                    margin: 0,
-                    padding: "1rem",
-                    background: "transparent",
-                    overflowX: "auto",
-                    fontSize: "13px",
-                    lineHeight: "1.7"
-                  }}
-                  codeTagProps={{
-                    className: cn("font-mono text-[13px]", className)
-                  }}
-                >
-                  {String(children).replace(/\n$/, "")}
-                </SyntaxHighlighter>
+              );
+            },
+            table: ({ children }) => (
+              <div className="my-4 overflow-x-auto rounded-2xl border border-white/10">
+                <table className="min-w-full border-collapse text-left text-[14px]">{children}</table>
               </div>
-            );
-          },
-          table: ({ children }) => (
-            <div className="my-4 overflow-x-auto rounded-2xl border border-white/10">
-              <table className="min-w-full border-collapse text-left text-[14px]">{children}</table>
-            </div>
-          ),
-          img: ({ src, alt }) =>
-            typeof src === "string" ? (
-              <GeneratedImage src={src} alt={typeof alt === "string" ? alt : "Generated image"} />
-            ) : null,
-          th: ({ children }) => (
-            <th className="border-b border-white/10 bg-white/6 px-4 py-3 font-semibold text-white">
-              {children}
-            </th>
-          ),
-          td: ({ children }) => <td className="border-t border-white/7 px-4 py-3 text-white/82">{children}</td>,
-          blockquote: ({ children }) => (
-            <blockquote className="border-l-2 border-white/18 pl-4 text-white/70 italic">
-              {children}
-            </blockquote>
-          )
-        }}
-      >
-        {content}
-      </ReactMarkdown>
+            ),
+            img: ({ src, alt }) =>
+              typeof src === "string" ? (
+                <GeneratedImage src={src} alt={typeof alt === "string" ? alt : "Generated image"} />
+              ) : null,
+            th: ({ children }) => (
+              <th className="border-b border-white/10 bg-white/6 px-4 py-3 font-semibold text-white">
+                {children}
+              </th>
+            ),
+            td: ({ children }) => <td className="border-t border-white/7 px-4 py-3 text-white/82">{children}</td>,
+            blockquote: ({ children }) => (
+              <blockquote className="border-l-2 border-white/18 pl-4 text-white/70 italic">
+                {children}
+              </blockquote>
+            )
+          }}
+        >
+          {content}
+        </ReactMarkdown>
+      </div>
     </div>
   );
 }

@@ -16,7 +16,8 @@ import {
   type AuthUser,
   type ConversationMessage,
   type ConversationSummary,
-  type GeneratedImageItem
+  type GeneratedImageItem,
+  type ToolState
 } from "@/lib/api";
 import {
   initialPreviews,
@@ -38,6 +39,7 @@ type ChatUiState = {
   selectedModelId: string;
   modelMenuOpen: boolean;
   mobileSidebarOpen: boolean;
+  desktopSidebarCollapsed: boolean;
   composerText: string;
   previews: AttachmentPreview[];
   activeToolIds: string[];
@@ -53,6 +55,8 @@ type ChatUiState = {
   setSelectedModel: (id: string) => void;
   setModelMenuOpen: (open: boolean) => void;
   setMobileSidebarOpen: (open: boolean) => void;
+  setDesktopSidebarCollapsed: (collapsed: boolean) => void;
+  toggleDesktopSidebar: () => void;
   setComposerText: (value: string) => void;
   addPreviews: (items: AttachmentPreview[]) => void;
   removePreview: (id: string) => void;
@@ -99,6 +103,24 @@ function setSidebarMode(items: SidebarNavItem[], selectedConversationId: string 
   }));
 }
 
+function upsertToolState(toolStates: ToolState[] | undefined, nextTool: ToolState) {
+  const currentToolStates = toolStates ?? [];
+  const existingIndex = currentToolStates.findIndex((tool) => tool.id === nextTool.id);
+
+  if (existingIndex === -1) {
+    return [...currentToolStates, nextTool];
+  }
+
+  return currentToolStates.map((tool, index) => (index === existingIndex ? nextTool : tool));
+}
+
+function completeToolStates(toolStates: ToolState[] | undefined): ToolState[] | undefined {
+  return toolStates?.map((tool) => ({
+    ...tool,
+    status: "completed" as const
+  }));
+}
+
 export const useChatUiStore = create<ChatUiState>((set, get) => ({
   sidebarItems: sidebarNavItems,
   currentView: "chat",
@@ -109,6 +131,7 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
   selectedModelId: "xynoos-ai-v1",
   modelMenuOpen: false,
   mobileSidebarOpen: false,
+  desktopSidebarCollapsed: false,
   composerText: "",
   previews: initialPreviews,
   activeToolIds: [],
@@ -128,6 +151,11 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
     }),
   setModelMenuOpen: (open) => set({ modelMenuOpen: open }),
   setMobileSidebarOpen: (open) => set({ mobileSidebarOpen: open }),
+  setDesktopSidebarCollapsed: (collapsed) => set({ desktopSidebarCollapsed: collapsed }),
+  toggleDesktopSidebar: () =>
+    set((state) => ({
+      desktopSidebarCollapsed: !state.desktopSidebarCollapsed
+    })),
   setComposerText: (value) => set({ composerText: value }),
   addPreviews: (items) =>
     set((state) => ({
@@ -552,7 +580,8 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
             createdAt: now,
             model: createImageMode ? "Xynoos Image" : modelLabel,
             isStreaming: true,
-            isImageGeneration: createImageMode
+            isImageGeneration: createImageMode,
+            toolStates: createImageMode ? [] : []
           }
         ],
         mobileSidebarOpen: false
@@ -622,6 +651,18 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
               )
             }));
           },
+          onTool: (tool) => {
+            set((state) => ({
+              messages: state.messages.map((message) =>
+                message.id === localAssistantId || message.isStreaming
+                  ? {
+                      ...message,
+                      toolStates: upsertToolState(message.toolStates, tool)
+                    }
+                  : message
+              )
+            }));
+          },
           onDone: async ({ conversation, assistantMessageId, content: finalContent, model }) => {
             const { conversations } = await fetchConversations(token);
             const nextModelLabel =
@@ -639,7 +680,8 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
                       content: finalContent,
                       model: nextModelLabel,
                       isStreaming: false,
-                      isImageGeneration: createImageMode
+                      isImageGeneration: createImageMode,
+                      toolStates: completeToolStates(message.toolStates)
                     }
                   : message
               ),
@@ -671,7 +713,8 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
             message.id === localAssistantId || message.isStreaming
               ? {
                   ...message,
-                  isStreaming: false
+                  isStreaming: false,
+                  toolStates: completeToolStates(message.toolStates)
                 }
               : message
           )

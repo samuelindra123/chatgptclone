@@ -24,11 +24,25 @@ export type ConversationMessage = {
   model?: string | null;
   isStreaming?: boolean;
   isImageGeneration?: boolean;
+  toolStates?: ToolState[];
   attachments?: Array<{
     id: string;
     name: string;
     mimeType: string;
     url: string;
+  }>;
+};
+
+export type ToolState = {
+  id: "current_datetime" | "web_search_duckduckgo";
+  status: "running" | "completed";
+  detail: string;
+  timestamp: string;
+  metadata?: Record<string, string | number | boolean>;
+  sources?: Array<{
+    title: string;
+    url: string;
+    snippet: string;
   }>;
 };
 
@@ -75,6 +89,7 @@ type StreamEventHandlers = {
     }>;
   }) => void;
   onDelta?: (payload: { text: string }) => void;
+  onTool?: (payload: ToolState) => void;
   onDone?: (payload: {
     conversation: ConversationDetail["conversation"];
     assistantMessageId: string;
@@ -269,6 +284,11 @@ export async function streamConversationReply(
 
       if (parsed.event === "delta") {
         handlers.onDelta?.(payload as Parameters<NonNullable<StreamEventHandlers["onDelta"]>>[0]);
+        continue;
+      }
+
+      if (parsed.event === "tool") {
+        handlers.onTool?.(payload as ToolState);
         continue;
       }
 
