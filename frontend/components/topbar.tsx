@@ -1,17 +1,19 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { Menu, PanelLeftOpen } from "lucide-react";
 import { LoginButton } from "@/components/login-button";
 import { ModelSelector } from "@/components/model-selector";
 import { useChatUiStore } from "@/lib/store/chatgpt-ui";
 
 export function Topbar() {
+  const pathname = usePathname();
   const setMobileSidebarOpen = useChatUiStore((state) => state.setMobileSidebarOpen);
   const desktopSidebarCollapsed = useChatUiStore((state) => state.desktopSidebarCollapsed);
   const toggleDesktopSidebar = useChatUiStore((state) => state.toggleDesktopSidebar);
 
   return (
-    <header className="mx-auto flex h-[52px] w-full max-w-[var(--main-max-width)] shrink-0 items-center justify-between px-2 sm:px-1">
+    <header className="mx-auto flex h-[52px] w-full max-w-[min(92rem,calc(100vw-2rem))] shrink-0 items-center justify-between px-2 sm:px-1">
       <div className="flex min-w-0 items-center gap-1">
         {desktopSidebarCollapsed ? (
           <button

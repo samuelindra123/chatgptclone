@@ -10,6 +10,7 @@ import { ImagesGallery } from "@/components/images-gallery";
 import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
 import { useChatUiStore } from "@/lib/store/chatgpt-ui";
+import { cn } from "@/lib/utils";
 
 type AppShellProps = {
   initialConversationId?: string | null;
@@ -71,10 +72,13 @@ export function AppShell({ initialConversationId = null, initialView = "chat" }:
       return;
     }
 
-    document.title = activeConversation?.title
-      ? `${activeConversation.title} | Xynoos AI`
-      : "Xynoos AI";
-  }, [activeConversation?.title]);
+    document.title =
+      currentView === "images"
+        ? "Images | Xynoos AI"
+        : activeConversation?.title
+            ? `${activeConversation.title} | Xynoos AI`
+            : "Xynoos AI";
+  }, [activeConversation?.title, currentView]);
 
   return (
     <div className="bg-app flex h-dvh overflow-hidden">
@@ -82,7 +86,12 @@ export function AppShell({ initialConversationId = null, initialView = "chat" }:
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
         <main className="flex min-h-0 flex-1 flex-col px-2 pb-3 sm:px-4 lg:px-5">
-          <div className="mx-auto flex h-full w-full max-w-[var(--main-max-width)] flex-col">
+          <div
+            className={cn(
+              "mx-auto flex h-full w-full flex-col",
+              "max-w-[var(--main-max-width)]"
+            )}
+          >
             {initializing ? (
               <div className="flex flex-1 items-center justify-center">
                 <p className="text-sm text-white/55">Memuat workspace...</p>

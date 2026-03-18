@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { ConversationsModule } from './conversations/conversations.module';
 import { DatabaseModule } from './database/database.module';
 import { LlmModule } from './llm/llm.module';
+import { TheologyModule } from './theology/theology.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { LlmModule } from './llm/llm.module';
     AuthModule,
     ConversationsModule,
     LlmModule,
+    TheologyModule,
   ],
   controllers: [AppController],
   providers: [AppService],

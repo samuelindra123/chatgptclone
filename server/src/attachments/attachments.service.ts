@@ -5,6 +5,12 @@ import { createWorker } from 'tesseract.js';
 
 type UploadedAttachment = Express.Multer.File;
 type OcrWorker = Awaited<ReturnType<typeof createWorker>>;
+export type ExtractedAttachmentPayload = {
+  name: string;
+  mimeType: string;
+  size: number;
+  extractedText: string;
+};
 
 const MAX_PDF_CHARACTERS = 60000;
 const MAX_IMAGE_OCR_CHARACTERS = 16000;
@@ -15,8 +21,19 @@ const MIN_PDF_TEXT_LENGTH_FOR_DIRECT_PARSE = 120;
 @Injectable()
 export class AttachmentsService {
   async buildAttachmentContext(files: UploadedAttachment[]) {
+    const extractedPayloads = await this.extractAttachmentPayloads(files);
+
+    return extractedPayloads
+      .map((payload) => payload.extractedText)
+      .filter(Boolean)
+      .join('\n\n');
+  }
+
+  async extractAttachmentPayloads(
+    files: UploadedAttachment[],
+  ): Promise<ExtractedAttachmentPayload[]> {
     if (files.length === 0) {
-      return '';
+      return [];
     }
 
     let ocrWorker: OcrWorker | null = null;
@@ -31,19 +48,26 @@ export class AttachmentsService {
     try {
       const extractedParts = await Promise.all(
         files.map(async (file, index) => {
+          let extractedText = '';
+
           if (file.mimetype === 'application/pdf') {
-            return this.extractPdfText(file, index, getOcrWorker);
+            extractedText = await this.extractPdfText(file, index, getOcrWorker);
+          } else if (file.mimetype.startsWith('image/')) {
+            extractedText = await this.extractImageText(file, index, getOcrWorker);
+          } else {
+            extractedText = `Lampiran ${index + 1}: ${file.originalname}\nJenis file belum didukung untuk dibaca otomatis.`;
           }
 
-          if (file.mimetype.startsWith('image/')) {
-            return this.extractImageText(file, index, getOcrWorker);
-          }
-
-          return `Lampiran ${index + 1}: ${file.originalname}\nJenis file belum didukung untuk dibaca otomatis.`;
+          return {
+            name: file.originalname,
+            mimeType: file.mimetype,
+            size: file.size,
+            extractedText,
+          };
         }),
       );
 
-      return extractedParts.filter(Boolean).join('\n\n');
+      return extractedParts;
     } finally {
       if (ocrWorker) {
         await (ocrWorker as OcrWorker).terminate();

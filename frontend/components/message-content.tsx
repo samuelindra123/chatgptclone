@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Link2 } from "lucide-react";
+import { Download, Link2, MessageSquareText, Info } from "lucide-react";
 import { AssistantToolStrip } from "@/components/assistant-tool-strip";
 import type { ToolState } from "@/lib/api";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -9,6 +9,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
+import { useChatUiStore } from "@/lib/store/chatgpt-ui";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 type MessageContentProps = {

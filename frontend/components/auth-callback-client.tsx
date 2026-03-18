@@ -5,11 +5,10 @@ import { useRouter } from "next/navigation";
 import { useChatUiStore } from "@/lib/store/chatgpt-ui";
 
 type AuthCallbackClientProps = {
-  token?: string;
   error?: string;
 };
 
-export function AuthCallbackClient({ token, error }: AuthCallbackClientProps) {
+export function AuthCallbackClient({ error }: AuthCallbackClientProps) {
   const router = useRouter();
   const completeGoogleLogin = useChatUiStore((state) => state.completeGoogleLogin);
   const [message, setMessage] = useState("Menyelesaikan login Google...");
@@ -21,21 +20,16 @@ export function AuthCallbackClient({ token, error }: AuthCallbackClientProps) {
         return;
       }
 
-      if (!token) {
-        setMessage("Token login tidak ditemukan.");
-        return;
-      }
-
       try {
-        await completeGoogleLogin(token);
+        await completeGoogleLogin();
         router.replace("/");
       } catch {
-        setMessage("Sesi tidak bisa disimpan. Periksa konfigurasi backend.");
+        setMessage("Sesi login tidak tersedia. Periksa cookie dan konfigurasi backend.");
       }
     }
 
     void finishLogin();
-  }, [completeGoogleLogin, error, router, token]);
+  }, [completeGoogleLogin, error, router]);
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#202123] px-6 text-center text-white">

@@ -1,6 +1,3 @@
-const DEFAULT_API_URL = "http://localhost:3001/api";
-const SESSION_TOKEN_KEY = "xynoos.session-token";
-
 export type AuthUser = {
   id: string;
   email: string;
@@ -9,6 +6,13 @@ export type AuthUser = {
 };
 
 export type ConversationSummary = {
+  id: string;
+  title: string;
+  updatedAt: string;
+  preview: string;
+};
+
+export type TheologySessionSummary = {
   id: string;
   title: string;
   updatedAt: string;
@@ -48,6 +52,16 @@ export type ToolState = {
 
 export type ConversationDetail = {
   conversation: {
+    id: string;
+    title: string;
+    createdAt: string;
+    updatedAt: string;
+  };
+  messages: ConversationMessage[];
+};
+
+export type TheologySessionDetail = {
+  session: {
     id: string;
     title: string;
     createdAt: string;
@@ -103,25 +117,52 @@ type StreamOptions = {
   signal?: AbortSignal;
 };
 
-function getApiBaseUrl() {
-  return process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL;
-}
+type TheologyStreamPayload = {
+  sessionId?: string | null;
+  content: string;
+  model?: string;
+  deepAcademicMode?: boolean;
+};
 
-async function apiFetch<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
+type TheologyStreamEventHandlers = {
+  onMeta?: (payload: {
+    session: TheologySessionDetail["session"];
+    userMessageId: string;
+    assistantMessageId: string;
+    model: string;
+  }) => void;
+  onDelta?: (payload: { text: string }) => void;
+  onTool?: (payload: ToolState) => void;
+  onDone?: (payload: {
+    session: TheologySessionDetail["session"];
+    assistantMessageId: string;
+    content: string;
+    model: string;
+  }) => void;
+  onError?: (payload: { message: string }) => void;
+};
+
+function getApiBaseUrl() {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
+
+  if (!apiUrl) {
+    throw new Error("Missing NEXT_PUBLIC_API_URL environment variable");
+  }
+
+  return apiUrl.replace(/\/+$/, "");
+}
+async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
 
   if (!headers.has("Content-Type") && init.body) {
     headers.set("Content-Type", "application/json");
   }
 
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-
   const response = await fetch(`${getApiBaseUrl()}${path}`, {
     ...init,
     headers,
-    cache: "no-store"
+    cache: "no-store",
+    credentials: "include"
   });
 
   if (!response.ok) {
@@ -132,83 +173,83 @@ async function apiFetch<T>(path: string, init: RequestInit = {}, token?: string)
   return (await response.json()) as T;
 }
 
-export function getSessionTokenKey() {
-  return SESSION_TOKEN_KEY;
-}
-
-export function readSessionToken() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  return window.localStorage.getItem(SESSION_TOKEN_KEY);
-}
-
-export function writeSessionToken(token: string) {
-  if (typeof window !== "undefined") {
-    window.localStorage.setItem(SESSION_TOKEN_KEY, token);
-  }
-}
-
-export function clearSessionToken() {
-  if (typeof window !== "undefined") {
-    window.localStorage.removeItem(SESSION_TOKEN_KEY);
-  }
-}
-
 export function buildGoogleAuthStartUrl() {
-  const url = new URL(`${getApiBaseUrl()}/auth/google/start`);
-
-  if (typeof window !== "undefined") {
-    url.searchParams.set("redirectTo", window.location.origin);
+  if (typeof window === "undefined") {
+    throw new Error("Google auth URL can only be built in the browser");
   }
+
+  const url = new URL(`${getApiBaseUrl()}/auth/google/start`, window.location.origin);
+  url.searchParams.set("redirectTo", window.location.origin);
 
   return url.toString();
 }
 
-export async function fetchCurrentUser(token: string) {
-  return apiFetch<{ user: AuthUser }>("/auth/me", {}, token);
+export async function fetchCurrentUser() {
+  return apiFetch<{ user: AuthUser | null }>("/auth/me");
 }
 
-export async function fetchConversations(token: string) {
-  return apiFetch<{ conversations: ConversationSummary[] }>("/conversations", {}, token);
+export async function logoutSession() {
+  return apiFetch<{ success: boolean }>("/auth/logout", {
+    method: "POST"
+  });
 }
 
-export async function fetchConversation(conversationId: string, token: string) {
-  return apiFetch<ConversationDetail>(`/conversations/${conversationId}`, {}, token);
+export async function fetchConversations() {
+  return apiFetch<{ conversations: ConversationSummary[] }>("/conversations");
 }
 
-export async function fetchGeneratedImages(token: string) {
-  return apiFetch<{ images: GeneratedImageItem[] }>("/conversations/generated-images", {}, token);
+export async function fetchConversation(conversationId: string) {
+  return apiFetch<ConversationDetail>(`/conversations/${conversationId}`);
 }
 
-export async function createConversation(payload: MutationPayload, token: string) {
+export async function fetchTheologySessions() {
+  return apiFetch<{ sessions: TheologySessionSummary[] }>("/teologis-ai/sessions");
+}
+
+export async function fetchTheologySession(sessionId: string) {
+  return apiFetch<TheologySessionDetail>(`/teologis-ai/sessions/${sessionId}`);
+}
+
+export async function renameTheologySession(sessionId: string, title: string) {
+  return apiFetch<{ session: TheologySessionDetail["session"] }>(`/teologis-ai/sessions/${sessionId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title })
+  });
+}
+
+export async function deleteTheologySession(sessionId: string) {
+  return apiFetch<{ success: boolean }>(`/teologis-ai/sessions/${sessionId}`, {
+    method: "DELETE"
+  });
+}
+
+export async function fetchGeneratedImages() {
+  return apiFetch<{ images: GeneratedImageItem[] }>("/conversations/generated-images");
+}
+
+export async function createConversation(payload: MutationPayload) {
   return apiFetch<ConversationDetail>("/conversations", {
     method: "POST",
     body: JSON.stringify(payload)
-  }, token);
+  });
 }
 
 export async function appendConversationMessage(
   conversationId: string,
-  payload: MutationPayload,
-  token: string
+  payload: MutationPayload
 ) {
   return apiFetch<ConversationDetail>(`/conversations/${conversationId}/messages`, {
     method: "POST",
     body: JSON.stringify(payload)
-  }, token);
+  });
 }
 
 export async function streamConversationReply(
   payload: MutationPayload,
-  token: string,
   handlers: StreamEventHandlers,
   options: StreamOptions = {}
 ) {
-  const headers = new Headers({
-    Authorization: `Bearer ${token}`
-  });
+  const headers = new Headers();
 
   let body: BodyInit;
 
@@ -245,6 +286,7 @@ export async function streamConversationReply(
     headers,
     body,
     cache: "no-store",
+    credentials: "include",
     signal: options.signal
   });
 
@@ -304,6 +346,78 @@ export async function streamConversationReply(
   }
 }
 
+export async function streamTheologyReply(
+  payload: TheologyStreamPayload,
+  handlers: TheologyStreamEventHandlers,
+  options: StreamOptions = {}
+) {
+  const response = await fetch(`${getApiBaseUrl()}/teologis-ai/chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload),
+    cache: "no-store",
+    credentials: "include",
+    signal: options.signal
+  });
+
+  if (!response.ok || !response.body) {
+    const errorPayload = (await response.json().catch(() => null)) as { message?: string } | null;
+    throw new Error(errorPayload?.message ?? `Request failed with status ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    const blocks = buffer.split("\n\n");
+    buffer = blocks.pop() ?? "";
+
+    for (const block of blocks) {
+      const parsed = parseSseBlock(block);
+
+      if (!parsed) {
+        continue;
+      }
+
+      const eventPayload = JSON.parse(parsed.data) as Record<string, unknown>;
+
+      if (parsed.event === "meta") {
+        handlers.onMeta?.(eventPayload as Parameters<NonNullable<TheologyStreamEventHandlers["onMeta"]>>[0]);
+        continue;
+      }
+
+      if (parsed.event === "delta") {
+        handlers.onDelta?.(eventPayload as Parameters<NonNullable<TheologyStreamEventHandlers["onDelta"]>>[0]);
+        continue;
+      }
+
+      if (parsed.event === "tool") {
+        handlers.onTool?.(eventPayload as ToolState);
+        continue;
+      }
+
+      if (parsed.event === "done") {
+        handlers.onDone?.(eventPayload as Parameters<NonNullable<TheologyStreamEventHandlers["onDone"]>>[0]);
+        continue;
+      }
+
+      if (parsed.event === "error") {
+        handlers.onError?.(eventPayload as Parameters<NonNullable<TheologyStreamEventHandlers["onError"]>>[0]);
+      }
+    }
+  }
+}
+
 function parseSseBlock(block: string) {
   const lines = block.split("\n");
   const event = lines.find((line) => line.startsWith("event:"))?.slice("event:".length).trim();
@@ -323,17 +437,16 @@ function parseSseBlock(block: string) {
 
 export async function renameConversation(
   conversationId: string,
-  title: string,
-  token: string
+  title: string
 ) {
   return apiFetch<{ conversation: ConversationDetail["conversation"] }>(`/conversations/${conversationId}`, {
     method: "PATCH",
     body: JSON.stringify({ title })
-  }, token);
+  });
 }
 
-export async function deleteConversation(conversationId: string, token: string) {
+export async function deleteConversation(conversationId: string) {
   return apiFetch<{ success: boolean }>(`/conversations/${conversationId}`, {
     method: "DELETE"
-  }, token);
+  });
 }

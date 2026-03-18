@@ -1,15 +1,13 @@
 import {
   Controller,
   Get,
+  Post,
   Query,
   Req,
   Res,
-  UnauthorizedException,
-  UseGuards,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AuthService, type AuthenticatedUser } from './auth.service';
-import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -39,22 +37,40 @@ export class AuthController {
     }
 
     const result = await this.authService.signInWithGoogle(code, state);
-    response.redirect(
-      this.authService.buildFrontendCallbackUrl(result.redirectTo, {
-        token: result.token,
-      }),
+    response.cookie(
+      this.authService.getAuthCookieName(),
+      result.token,
+      this.authService.buildAuthCookieOptions(),
     );
+    response.redirect(this.authService.buildFrontendCallbackUrl(result.redirectTo, {}));
   }
 
   @Get('me')
-  @UseGuards(JwtAuthGuard)
   getCurrentUser(@Req() request: Request & { user?: AuthenticatedUser }) {
-    if (!request.user) {
-      throw new UnauthorizedException();
+    const token = this.authService.extractAccessToken(request);
+
+    if (!token) {
+      return {
+        user: null,
+      };
     }
 
-    return {
-      user: request.user,
-    };
+    return this.authService
+      .verifyAccessToken(token)
+      .then((user) => ({
+        user,
+      }))
+      .catch(() => ({
+        user: null,
+      }));
+  }
+
+  @Post('logout')
+  logout(@Res() response: Response) {
+    response.clearCookie(
+      this.authService.getAuthCookieName(),
+      this.authService.buildAuthCookieOptions(),
+    );
+    response.json({ success: true });
   }
 }

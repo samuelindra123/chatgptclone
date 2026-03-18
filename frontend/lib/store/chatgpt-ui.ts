@@ -3,16 +3,14 @@
 import { create } from "zustand";
 import {
   buildGoogleAuthStartUrl,
-  clearSessionToken,
   deleteConversation as deleteConversationRequest,
   fetchConversation,
   fetchConversations,
   fetchCurrentUser,
   fetchGeneratedImages,
-  readSessionToken,
+  logoutSession,
   renameConversation as renameConversationRequest,
   streamConversationReply,
-  writeSessionToken,
   type AuthUser,
   type ConversationMessage,
   type ConversationSummary,
@@ -67,7 +65,7 @@ type ChatUiState = {
   loadGeneratedImages: () => Promise<void>;
   initializeApp: (preferredConversationId?: string | null) => Promise<void>;
   syncConversationFromRoute: (conversationId: string | null) => Promise<void>;
-  completeGoogleLogin: (token: string) => Promise<void>;
+  completeGoogleLogin: () => Promise<void>;
   beginGoogleLogin: () => void;
   logout: () => void;
   activateNavItem: (id: string) => void;
@@ -186,17 +184,15 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
           : [...state.activeToolIds, "reason"]
     })),
   loadGeneratedImages: async () => {
-    const token = readSessionToken();
-
-    if (!token) {
-      set({ generatedImages: [], generatedImagesLoading: false });
+    if (get().authStatus !== "authenticated") {
+      set({ generatedImages: [], generatedImagesLoading: false, errorMessage: null });
       return;
     }
 
     set({ generatedImagesLoading: true, errorMessage: null });
 
     try {
-      const { images } = await fetchGeneratedImages(token);
+      const { images } = await fetchGeneratedImages();
       set({
         generatedImages: images,
         generatedImagesLoading: false,
@@ -211,24 +207,7 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
     }
   },
   initializeApp: async (preferredConversationId = null) => {
-    const token = readSessionToken();
     const currentState = get();
-
-    if (!token) {
-      set({
-        currentUser: null,
-        authStatus: "unauthenticated",
-        initializing: false,
-        recentChats: [],
-        generatedImages: [],
-        messages: [],
-        selectedConversationId: null,
-        currentView: "chat",
-        errorMessage: null,
-        sidebarItems: setSidebarMode(get().sidebarItems, null)
-      });
-      return;
-    }
 
     if (
       currentState.authStatus === "authenticated" &&
@@ -261,10 +240,25 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
     });
 
     try {
-      const [{ user }, { conversations }] = await Promise.all([
-        fetchCurrentUser(token),
-        fetchConversations(token)
-      ]);
+      const { user } = await fetchCurrentUser();
+
+      if (!user) {
+        set({
+          currentUser: null,
+          authStatus: "unauthenticated",
+          initializing: false,
+          recentChats: [],
+          generatedImages: [],
+          messages: [],
+          selectedConversationId: null,
+          currentView: "chat",
+          errorMessage: null,
+          sidebarItems: setSidebarMode(get().sidebarItems, null)
+        });
+        return;
+      }
+
+      const { conversations } = await fetchConversations();
       const selectedConversationId =
         preferredConversationId === null
           ? null
@@ -284,7 +278,7 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
       });
 
       if (selectedConversationId) {
-        const detail = await fetchConversation(selectedConversationId, token);
+        const detail = await fetchConversation(selectedConversationId);
         set({
           messages: detail.messages
         });
@@ -294,7 +288,6 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
         });
       }
     } catch (error) {
-      clearSessionToken();
       set({
         currentUser: null,
         authStatus: "unauthenticated",
@@ -304,15 +297,13 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
         messages: [],
         selectedConversationId: null,
         currentView: "chat",
-        errorMessage: error instanceof Error ? error.message : "Gagal memuat sesi",
+        errorMessage: null,
         sidebarItems: setSidebarMode(get().sidebarItems, null)
       });
     }
   },
   syncConversationFromRoute: async (conversationId) => {
-    const token = readSessionToken();
-
-    if (!token) {
+    if (get().authStatus !== "authenticated") {
       return;
     }
 
@@ -352,7 +343,7 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
     }));
 
     try {
-      const detail = await fetchConversation(conversationId, token);
+      const detail = await fetchConversation(conversationId);
 
       set((state) => ({
         currentView: "chat",
@@ -378,9 +369,12 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
       }));
     }
   },
-  completeGoogleLogin: async (token) => {
-    writeSessionToken(token);
+  completeGoogleLogin: async () => {
     await get().initializeApp();
+
+    if (get().authStatus !== "authenticated") {
+      throw new Error("Sesi login tidak tersedia");
+    }
   },
   beginGoogleLogin: () => {
     if (typeof window !== "undefined") {
@@ -388,7 +382,7 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
     }
   },
   logout: () => {
-    clearSessionToken();
+    void logoutSession().catch(() => undefined);
     set({
       currentUser: null,
       authStatus: "unauthenticated",
@@ -410,6 +404,7 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
       sidebarItems: setSidebarMode(state.sidebarItems, id === "new-chat" ? null : state.selectedConversationId, id),
       selectedConversationId: id === "new-chat" ? null : state.selectedConversationId,
       messages: id === "new-chat" ? [] : state.messages,
+      mobileSidebarOpen: false,
       recentChats:
         id === "new-chat" || id === "images"
           ? state.recentChats.map((chat) => ({
@@ -419,9 +414,7 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
           : state.recentChats
     })),
   activateRecentChat: async (id) => {
-    const token = readSessionToken();
-
-    if (!token) {
+    if (get().authStatus !== "authenticated") {
       return;
     }
 
@@ -437,7 +430,7 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
       errorMessage: null
     }));
 
-    const detail = await fetchConversation(id, token);
+    const detail = await fetchConversation(id);
 
     set((state) => ({
       currentView: "chat",
@@ -453,15 +446,13 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
     }));
   },
   renameRecentChat: async (id, title) => {
-    const token = readSessionToken();
-
-    if (!token) {
+    if (get().authStatus !== "authenticated") {
       return false;
     }
 
     try {
-      await renameConversationRequest(id, title, token);
-      const { conversations } = await fetchConversations(token);
+      await renameConversationRequest(id, title);
+      const { conversations } = await fetchConversations();
 
       set((state) => ({
         recentChats: setRecentChats(conversations, state.selectedConversationId),
@@ -481,15 +472,13 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
     }
   },
   deleteRecentChat: async (id) => {
-    const token = readSessionToken();
-
-    if (!token) {
+    if (get().authStatus !== "authenticated") {
       return false;
     }
 
     try {
-      await deleteConversationRequest(id, token);
-      const { conversations } = await fetchConversations(token);
+      await deleteConversationRequest(id);
+      const { conversations } = await fetchConversations();
       const fallbackConversationId =
         get().selectedConversationId === id
           ? (conversations[0]?.id ?? null)
@@ -498,7 +487,7 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
       let nextMessages: ConversationMessage[] = get().messages;
 
       if (fallbackConversationId && fallbackConversationId !== get().selectedConversationId) {
-        const detail = await fetchConversation(fallbackConversationId, token);
+        const detail = await fetchConversation(fallbackConversationId);
         nextMessages = detail.messages;
       }
 
@@ -532,9 +521,7 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
       return false;
     }
 
-    const token = readSessionToken();
-
-    if (!token) {
+    if (get().authStatus !== "authenticated") {
       get().beginGoogleLogin();
       return false;
     }
@@ -596,7 +583,6 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
           toolIds: activeToolIds,
           files: previews.map((preview) => preview.file)
         },
-        token,
         {
           onMeta: ({ conversation, userMessageId, assistantMessageId, model, uploadedAttachments }) => {
             const nextModelLabel =
@@ -664,7 +650,7 @@ export const useChatUiStore = create<ChatUiState>((set, get) => ({
             }));
           },
           onDone: async ({ conversation, assistantMessageId, content: finalContent, model }) => {
-            const { conversations } = await fetchConversations(token);
+            const { conversations } = await fetchConversations();
             const nextModelLabel =
               models.find((item) => item.id === model)?.label ?? modelLabel;
 

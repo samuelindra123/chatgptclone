@@ -4,7 +4,6 @@ export const dynamic = "force-dynamic";
 
 type AuthCallbackPageProps = {
   searchParams: Promise<{
-    token?: string;
     error?: string;
   }>;
 };
@@ -12,5 +11,5 @@ type AuthCallbackPageProps = {
 export default async function AuthCallbackPage({ searchParams }: AuthCallbackPageProps) {
   const params = await searchParams;
 
-  return <AuthCallbackClient token={params.token} error={params.error} />;
+  return <AuthCallbackClient error={params.error} />;
 }

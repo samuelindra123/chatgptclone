@@ -13,6 +13,54 @@ enum MessageRole {
   SYSTEM
 }
 
+enum ConversationNamespace {
+  GENERAL
+  THEOLOGY
+}
+
+enum CouncilSessionStatus {
+  QUEUED
+  DELIBERATING
+  SYNTHESIZING
+  COMPLETED
+  FAILED
+  PARTIAL_FAILURE
+}
+
+enum CouncilAgentName {
+  VISIONARY
+  USER_ADVOCATE
+  RISK_ANALYST
+  TECHNICAL_ARCHITECT
+  MODERATOR
+}
+
+enum CouncilAgentStatus {
+  IDLE
+  THINKING
+  ANALYZING
+  DEBATING
+  SYNTHESIZING
+  DONE
+  FAILED
+}
+
+enum CouncilAuditPhase {
+  SESSION
+  OPENING
+  CRITIQUE
+  SYNTHESIS
+  FINALIZATION
+  EXPORT
+  ERROR
+}
+
+enum CouncilRouteRole {
+  PRIMARY
+  FALLBACK
+  SHADOW
+}
+
 model User {
   id            String         @id @default(cuid())
   googleId      String         @unique
@@ -20,6 +68,7 @@ model User {
   name          String?
   avatarUrl     String?
   conversations Conversation[]
+  councilSessions AiCouncilSession[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 }
@@ -27,6 +76,7 @@ model User {
 model Conversation {
   id        String    @id @default(cuid())
   title     String
+  namespace ConversationNamespace @default(GENERAL)
   userId    String
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages  Message[]
@@ -34,6 +84,7 @@ model Conversation {
   updatedAt DateTime  @updatedAt
 
   @@index([userId, updatedAt(sort: Desc)])
+  @@index([userId, namespace, updatedAt(sort: Desc)])
 }
 
 model Message {
@@ -47,4 +98,111 @@ model Message {
   createdAt       DateTime      @default(now())
 
   @@index([conversationId, createdAt])
+}
+
+model AiCouncilSession {
+  id                  String                @id @default(cuid())
+  userId              String
+  organizationId      String?
+  user                User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title               String?
+  question            String
+  context             String?
+  notes               String?
+  modelLabel          String                @default("Xynoos AI")
+  routingMode         String                @default("dual-orchestration")
+  modelStack          Json?
+  status              CouncilSessionStatus  @default(QUEUED)
+  finalRecommendation String?
+  confidenceScore     Int?
+  finalOutputJson     Json?
+  providerUsageSummaryJson Json?
+  totalTokensUsed     Int?
+  estimatedCostUsd    Float?
+  maxProviderLatencyMs Int?
+  lastError           String?
+  startedAt           DateTime?
+  completedAt         DateTime?
+  agentOutputs        AiCouncilAgentOutput[]
+  auditLogs           AiCouncilAuditLog[]
+  attachments         AiCouncilAttachment[]
+  providerInvocations AiCouncilProviderInvocation[]
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  @@index([userId, updatedAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+}
+
+model AiCouncilAgentOutput {
+  id                 String             @id @default(cuid())
+  sessionId          String
+  session            AiCouncilSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  agentName          CouncilAgentName
+  status             CouncilAgentStatus @default(IDLE)
+  content            String             @default("")
+  modelUsed          String?
+  confidenceScore    Int?
+  supportingDataJson Json?
+  tokensUsed         Int?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@unique([sessionId, agentName])
+  @@index([sessionId, status])
+}
+
+model AiCouncilAuditLog {
+  id        String           @id @default(cuid())
+  sessionId String
+  session   AiCouncilSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  phase     CouncilAuditPhase
+  event     String
+  payload   Json?
+  createdAt DateTime         @default(now())
+
+  @@index([sessionId, createdAt(sort: Asc)])
+}
+
+model AiCouncilAttachment {
+  id            String           @id @default(cuid())
+  sessionId     String
+  session       AiCouncilSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  storageFileId String?
+  name          String
+  mimeType      String
+  size          Int?
+  viewUrl       String?
+  extractedText String?
+  createdAt     DateTime         @default(now())
+
+  @@index([sessionId, createdAt(sort: Asc)])
+}
+
+model AiCouncilProviderInvocation {
+  id               String             @id @default(cuid())
+  sessionId        String
+  session          AiCouncilSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  agentName        CouncilAgentName?
+  phase            CouncilAuditPhase
+  providerId       String
+  providerLabel    String
+  model            String
+  routeRole        CouncilRouteRole
+  success          Boolean
+  latencyMs        Int
+  promptTokens     Int?
+  completionTokens Int?
+  totalTokens      Int?
+  errorCode        String?
+  errorMessage     String?
+  attempt          Int                @default(1)
+  rawOutputJson    Json?
+  createdAt        DateTime           @default(now())
+
+  @@index([sessionId, createdAt(sort: Asc)])
+  @@index([providerId, createdAt(sort: Desc)])
+  @@index([agentName, createdAt(sort: Desc)])
 }

@@ -144,3 +144,67 @@ export function VoiceOrbIcon({ className }: AppIconProps) {
     </SvgIcon>
   );
 }
+
+export function CouncilVaultIcon({ className }: AppIconProps) {
+  return (
+    <SvgIcon className={className} viewBox="0 0 24 24">
+      <path
+        d="M12 3.9 18.1 6v5.45c0 4.28-2.1 7.15-6.1 8.65-4-1.5-6.1-4.37-6.1-8.65V6L12 3.9Z"
+        stroke="currentColor"
+        strokeWidth="1.78"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M8.4 11.55c1.2-1.82 2.35-2.73 3.6-2.73 1.2 0 2.32.84 3.46 2.53"
+        stroke="currentColor"
+        strokeWidth="1.78"
+        strokeLinecap="round"
+      />
+      <path
+        d="M9.35 14.55h5.3"
+        stroke="currentColor"
+        strokeWidth="1.78"
+        strokeLinecap="round"
+      />
+      <circle cx="12" cy="11.1" r="1.15" fill="currentColor" />
+    </SvgIcon>
+  );
+}
+
+export function TheologyBookIcon({ className }: AppIconProps) {
+  return (
+    <SvgIcon className={className} viewBox="0 0 24 24">
+      <path
+        d="M6.2 6.35A2.55 2.55 0 0 1 8.75 3.8h8.35a.9.9 0 0 1 .9.9v14.6a.9.9 0 0 1-.9.9H8.95a2.75 2.75 0 0 1-2.75-2.75V6.35Z"
+        stroke="currentColor"
+        strokeWidth="1.78"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6.2 7.45h10.9"
+        stroke="currentColor"
+        strokeWidth="1.78"
+        strokeLinecap="round"
+      />
+      <path
+        d="M12 9.25v5.4"
+        stroke="currentColor"
+        strokeWidth="1.78"
+        strokeLinecap="round"
+      />
+      <path
+        d="M9.3 11.95h5.4"
+        stroke="currentColor"
+        strokeWidth="1.78"
+        strokeLinecap="round"
+      />
+      <path
+        d="M6.2 17.45c.42.43 1.02.7 1.67.7h9.23"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        opacity="0.85"
+      />
+    </SvgIcon>
+  );
+}

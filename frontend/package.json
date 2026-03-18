@@ -8,6 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.90.21",
     "clsx": "^2.1.1",
     "framer-motion": "^12.6.0",
     "katex": "^0.16.38",

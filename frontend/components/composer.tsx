@@ -3,7 +3,7 @@
 import type { ChangeEvent, ClipboardEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { BrainCircuit, Globe, ImagePlus, Paperclip, Plus, X } from "lucide-react";
+import { ImagePlus, Paperclip, Plus, X } from "lucide-react";
 import { AttachmentPreviewStrip } from "@/components/attachment-preview-strip";
 import type { AttachmentPreview } from "@/lib/mock-data";
 import { useChatUiStore } from "@/lib/store/chatgpt-ui";
@@ -69,8 +69,6 @@ export function Composer() {
   const canSend = composerText.trim().length > 0 || previews.length > 0;
   const activeToolLabels = useMemo(() => {
     const toolLabelMap: Record<string, string> = {
-      search: "Web search",
-      reason: "Reason",
       "create-image": "Create image"
     };
 
@@ -200,26 +198,6 @@ export function Composer() {
       onSelect: () => {
         addActiveTool("upload");
         inputRef.current?.click();
-        setToolMenuOpen(false);
-      }
-    },
-    {
-      id: "search",
-      label: "Web search",
-      description: "Aktifkan mode pencarian web untuk pesan berikutnya",
-      icon: <Globe className="size-4" strokeWidth={2.05} />,
-      onSelect: () => {
-        addActiveTool("search");
-        setToolMenuOpen(false);
-      }
-    },
-    {
-      id: "reason",
-      label: "Reason",
-      description: "Dorong jawaban yang lebih analitis dan bertahap",
-      icon: <BrainCircuit className="size-4" strokeWidth={2.05} />,
-      onSelect: () => {
-        addActiveTool("reason");
         setToolMenuOpen(false);
       }
     },

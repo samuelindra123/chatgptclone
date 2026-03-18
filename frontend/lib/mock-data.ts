@@ -1,8 +1,10 @@
 import type { ComponentType } from "react";
 import {
+  CouncilVaultIcon,
   ImageStackIcon,
   NewChatIcon,
-  SearchIcon
+  SearchIcon,
+  TheologyBookIcon
 } from "@/components/chatgpt-ui-icons";
 import type { AppIconProps } from "@/components/chatgpt-ui-icons";
 
@@ -10,6 +12,7 @@ export type SidebarNavItem = {
   id: string;
   label: string;
   icon: ComponentType<AppIconProps>;
+  href?: string;
   active?: boolean;
 };
 
@@ -67,6 +70,7 @@ export const sidebarNavItems: SidebarNavItem[] = [
     id: "new-chat",
     label: "New chat",
     icon: NewChatIcon,
+    href: "/",
     active: true
   },
   {
@@ -77,7 +81,14 @@ export const sidebarNavItems: SidebarNavItem[] = [
   {
     id: "images",
     label: "Images",
-    icon: ImageStackIcon
+    icon: ImageStackIcon,
+    href: "/images"
+  },
+  {
+    id: "teologis-ai",
+    label: "Teologis AI",
+    icon: TheologyBookIcon,
+    href: "/teologis-ai"
   }
 ];
 

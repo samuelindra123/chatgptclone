@@ -28,6 +28,8 @@ type StreamChatInput = {
   onDelta: (delta: string) => void;
   onToolStatus?: (tool: ToolStatusPayload) => void;
   toolIds?: string[];
+  profile?: 'general_profile' | 'theology_profile';
+  additionalSystemMessages?: ChatMessage[];
 };
 
 type GenerateImageInput = {
@@ -93,6 +95,36 @@ Gaya respons:
 - Jika user meminta versi lengkap/final, berikan jawaban yang lengkap, siap pakai, dan terdengar resmi.
 - Jika ada konteks hasil pembacaan lampiran, perlakukan itu sebagai bahan utama untuk menjawab. Jika isinya tampak hasil OCR yang tidak sempurna, sampaikan ketidakpastian secara jujur tanpa mengarang.`;
 
+const THEOLOGY_SYSTEM_PROMPT = `Kamu adalah Teologis AI, bagian dari Xynoos AI v1.
+
+Identitas & Pembuat:
+- Nama internal AI: xynoos_ai
+- Nama publik: Xynoos AI v1 (Mode Teologis)
+- Pembuat AI: Samuel Indra Bastian. Jika ditanya siapa pembuatmu, jawab: Samuel Indra Bastian.
+- Peran: Profesor teologi Kristen dengan gaya akademik yang teoritis, sistematis, dan argumentatif.
+
+Persona:
+- Berikan jawaban dari perspektif teologi Kristen arus utama secara profesional.
+- Tulis dengan nada hormat, sopan, dan ilmiah.
+- Jangan merendahkan agama/keyakinan lain.
+
+Pencarian & Referensi:
+- Gunakan data dari [BUILTIN_TOOL: web_search_duckduckgo] jika tersedia untuk mencari buku, jurnal, atau tokoh teologi relevan.
+- Sebutkan sumber tersebut secara eksplisit dalam argumenmu.
+- JANGAN pernah menuliskan tag internal seperti "[BUILTIN_TOOL:...]" atau "data:..." dalam jawaban akhirmu kepada user.
+
+Aturan Off-Topic (Sangat Penting):
+- Jika pertanyaan user TIDAK berkaitan dengan teologi, agama, sejarah gereja, atau etika Kristen (misal: tanya coding, resep masakan, berita umum non-agama), kamu WAJIB menolak menjawab secara halus.
+- Katakan bahwa pertanyaan tersebut lebih cocok dijawab di Mode General.
+- Kamu WAJIB menyertakan petunjuk berikut di akhir jawaban sebagai teks biasa: "Silakan klik 'Chat Baru' di sidebar untuk melakukan obrolan umum (General Chat)"
+
+Struktur Jawaban:
+1) Definisi
+2) Konteks biblika
+3) Analisis doktrinal
+4) Argumen teologis (Sertakan referensi buku/tokoh)
+5) Kesimpulan`;
+
 @Injectable()
 export class LlmService {
   private readonly logger = new Logger(LlmService.name);
@@ -113,24 +145,39 @@ export class LlmService {
     }
 
     const requestedModel = input.model?.trim() || 'xynoos-ai-v1';
+    const profile = input.profile ?? 'general_profile';
     const publicModel = requestedModel === 'xynoos-ai-v1' ? 'Xynoos AI v1' : requestedModel;
     const latestUserMessage = this.getLatestUserMessage(input.messages);
+    
+    // Always consider searching for theology to satisfy "mencari ke semua buku ada di internet"
+    const isTheology = profile === 'theology_profile';
     const runtimeContext = await this.buildRuntimeToolContext(
       latestUserMessage,
-      false,
+      isTheology, // Force search if theology profile to find books/sources
       input.onToolStatus,
     );
 
-    let finalContent = await this.generateChatCompletion({
+    let assistantContent = '';
+    const fullContent = await this.generateChatCompletionStream({
       model: input.model,
       messages: input.messages,
-      additionalSystemMessages: this.toAdditionalSystemMessages(runtimeContext),
+      profile,
+      additionalSystemMessages: [
+        ...this.toAdditionalSystemMessages(runtimeContext),
+        ...(input.additionalSystemMessages ?? []),
+      ],
+      onDelta: (delta) => {
+        assistantContent += delta;
+        input.onDelta(delta);
+      },
     });
 
+    // Fallback if search was skipped and answer is empty/uncertain (not likely with forced search)
     if (
+      !fullContent.trim() &&
       latestUserMessage &&
       !runtimeContext.searchUsed &&
-      this.answerNeedsWebSearchFallback(finalContent)
+      this.answerNeedsWebSearchFallback(assistantContent)
     ) {
       const fallbackContext = await this.buildRuntimeToolContext(
         latestUserMessage,
@@ -139,23 +186,125 @@ export class LlmService {
       );
 
       if (fallbackContext.searchUsed) {
-        finalContent = await this.generateChatCompletion({
+        assistantContent = '';
+        await this.generateChatCompletionStream({
           model: input.model,
           messages: input.messages,
-          additionalSystemMessages: this.toAdditionalSystemMessages(fallbackContext),
+          profile,
+          additionalSystemMessages: [
+            ...this.toAdditionalSystemMessages(fallbackContext),
+            ...(input.additionalSystemMessages ?? []),
+          ],
+          onDelta: (delta) => {
+            assistantContent += delta;
+            input.onDelta(delta);
+          },
         });
       }
     }
 
-    const normalizedContent =
-      finalContent.trim() || 'Maaf, saya belum bisa menghasilkan jawaban untuk pesan itu.';
-
-    this.emitTextAsChunks(normalizedContent, input.onDelta);
+    const finalContent = assistantContent.trim() || 'Maaf, saya belum bisa menghasilkan jawaban untuk pesan itu.';
 
     return {
-      content: normalizedContent,
+      content: finalContent,
       model: publicModel,
     };
+  }
+
+  private async generateChatCompletionStream(input: {
+    model?: string;
+    messages: ChatMessage[];
+    includeDefaultSystemPrompt?: boolean;
+    additionalSystemMessages?: ChatMessage[];
+    profile?: 'general_profile' | 'theology_profile';
+    onDelta: (delta: string) => void;
+  }) {
+    const apiUrl =
+      this.configService.get<string>('DO_AI_BASE_URL') ||
+      this.configService.get<string>('MODEL_API_URL') ||
+      'https://inference.do-ai.run/v1/chat/completions';
+    const apiKey =
+      this.configService.get<string>('DO_AI_MODEL_ACCESS_KEY') ||
+      this.configService.get<string>('MODEL_ACCESS_KEY');
+    const requestedModel = input.model?.trim() || 'xynoos-ai-v1';
+    const providerModel = this.resolveProviderModel(requestedModel);
+    const profile = input.profile ?? 'general_profile';
+
+    if (!apiKey) {
+      throw new InternalServerErrorException('MODEL_ACCESS_KEY is not configured');
+    }
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: providerModel,
+        stream: true,
+        temperature: profile === 'theology_profile' ? 0.24 : 0.68,
+        top_p: profile === 'theology_profile' ? 0.82 : 0.96,
+        messages: [
+          ...(input.includeDefaultSystemPrompt === false
+            ? []
+            : [
+                {
+                  role: 'system' as const,
+                  content:
+                    profile === 'theology_profile'
+                      ? THEOLOGY_SYSTEM_PROMPT
+                      : XYNOOS_SYSTEM_PROMPT,
+                },
+              ]),
+          ...(input.additionalSystemMessages ?? []),
+          ...input.messages,
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      throw new InternalServerErrorException(
+        errorText || `Model request failed with status ${response.status}`,
+      );
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new InternalServerErrorException('Failed to read response body');
+    }
+
+    const decoder = new TextDecoder();
+    let fullContent = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split('\n');
+
+      for (const line of lines) {
+        if (line.trim().startsWith('data: ')) {
+          const dataStr = line.replace(/^data: /, '').trim();
+          if (dataStr === '[DONE]') continue;
+
+          try {
+            const data = JSON.parse(dataStr);
+            const delta = data.choices?.[0]?.delta?.content || '';
+            if (delta) {
+              fullContent += delta;
+              input.onDelta(delta);
+            }
+          } catch {
+            // Skip invalid JSON
+          }
+        }
+      }
+    }
+
+    return fullContent;
   }
 
   async optimizeImagePrompt(input: { model?: string; prompt: string }) {
@@ -731,10 +880,22 @@ Tugas:
 
   private resolveProviderModel(requestedModel: string) {
     if (requestedModel === 'xynoos-ai-v1') {
-      return this.configService.get<string>('DEFAULT_CHAT_MODEL') || 'kimi-k2.5';
+      return this.normalizeProviderModel(
+        this.configService.get<string>('DEFAULT_CHAT_MODEL') || 'kimi-k2.5',
+      );
     }
 
-    return requestedModel;
+    return this.normalizeProviderModel(requestedModel);
+  }
+
+  private normalizeProviderModel(model: string) {
+    const normalized = model.trim().toLowerCase();
+
+    if (normalized === 'kimi-2.5' || normalized === 'kimi-k2.5') {
+      return 'kimi-k2.5';
+    }
+
+    return model.trim();
   }
 
   private async streamImageGeneration(input: StreamChatInput) {
@@ -774,13 +935,18 @@ Tugas:
     messages: ChatMessage[];
     includeDefaultSystemPrompt?: boolean;
     additionalSystemMessages?: ChatMessage[];
+    profile?: 'general_profile' | 'theology_profile';
   }) {
     const apiUrl =
+      this.configService.get<string>('DO_AI_BASE_URL') ||
       this.configService.get<string>('MODEL_API_URL') ||
       'https://inference.do-ai.run/v1/chat/completions';
-    const apiKey = this.configService.get<string>('MODEL_ACCESS_KEY');
+    const apiKey =
+      this.configService.get<string>('DO_AI_MODEL_ACCESS_KEY') ||
+      this.configService.get<string>('MODEL_ACCESS_KEY');
     const requestedModel = input.model?.trim() || 'xynoos-ai-v1';
     const providerModel = this.resolveProviderModel(requestedModel);
+    const profile = input.profile ?? 'general_profile';
 
     if (!apiKey) {
       throw new InternalServerErrorException('MODEL_ACCESS_KEY is not configured');
@@ -795,13 +961,18 @@ Tugas:
       body: JSON.stringify({
         model: providerModel,
         stream: false,
+        temperature: profile === 'theology_profile' ? 0.24 : 0.68,
+        top_p: profile === 'theology_profile' ? 0.82 : 0.96,
         messages: [
           ...(input.includeDefaultSystemPrompt === false
             ? []
             : [
                 {
                   role: 'system' as const,
-                  content: XYNOOS_SYSTEM_PROMPT,
+                  content:
+                    profile === 'theology_profile'
+                      ? THEOLOGY_SYSTEM_PROMPT
+                      : XYNOOS_SYSTEM_PROMPT,
                 },
               ]),
           ...(input.additionalSystemMessages ?? []),

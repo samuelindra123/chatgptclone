@@ -43,6 +43,26 @@ export class AppwriteStorageService {
     messageId: string;
     files: UploadedAttachment[];
   }) {
+    return this.uploadFiles({
+      files: input.files,
+      pathPrefix: `conversations/${input.conversationId}/messages/${input.messageId}`,
+    });
+  }
+
+  async uploadAiCouncilFiles(input: {
+    sessionId: string;
+    files: UploadedAttachment[];
+  }) {
+    return this.uploadFiles({
+      files: input.files,
+      pathPrefix: `ai-council/${input.sessionId}/attachments`,
+    });
+  }
+
+  private async uploadFiles(input: {
+    files: UploadedAttachment[];
+    pathPrefix: string;
+  }) {
     if (!this.enabled || !this.storage || !this.bucketId || input.files.length === 0) {
       return [];
     }
@@ -62,7 +82,7 @@ export class AppwriteStorageService {
             name: file.originalname,
             mimeType: file.mimetype,
             size: file.size,
-            path: `conversations/${input.conversationId}/messages/${input.messageId}/${created.$id}`,
+            path: `${input.pathPrefix}/${created.$id}`,
             viewUrl: this.buildViewUrl(created.$id),
           };
         }),

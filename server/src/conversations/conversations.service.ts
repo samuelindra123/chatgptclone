@@ -4,7 +4,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { MessageRole } from '@prisma/client';
+import { ConversationNamespace, MessageRole } from '@prisma/client';
 import type { Response } from 'express';
 import { AttachmentsService } from '../attachments/attachments.service';
 import { DatabaseService } from '../database/database.service';
@@ -40,6 +40,7 @@ export class ConversationsService {
     const conversations = await this.databaseService.conversation.findMany({
       where: {
         userId,
+        namespace: ConversationNamespace.GENERAL,
       },
       orderBy: {
         updatedAt: 'desc',
@@ -73,6 +74,7 @@ export class ConversationsService {
         },
         conversation: {
           userId,
+          namespace: ConversationNamespace.GENERAL,
         },
       },
       include: {
@@ -95,6 +97,7 @@ export class ConversationsService {
       where: {
         id: conversationId,
         userId,
+        namespace: ConversationNamespace.GENERAL,
       },
       include: {
         messages: {
@@ -133,6 +136,7 @@ export class ConversationsService {
       data: {
         userId,
         title,
+        namespace: ConversationNamespace.GENERAL,
         messages: {
           create: {
             role: MessageRole.USER,
@@ -173,6 +177,7 @@ export class ConversationsService {
       where: {
         id: conversationId,
         userId,
+        namespace: ConversationNamespace.GENERAL,
       },
     });
 
@@ -233,6 +238,7 @@ export class ConversationsService {
       where: {
         id: conversationId,
         userId,
+        namespace: ConversationNamespace.GENERAL,
       },
     });
 
@@ -264,6 +270,7 @@ export class ConversationsService {
       where: {
         id: conversationId,
         userId,
+        namespace: ConversationNamespace.GENERAL,
       },
     });
 
@@ -396,6 +403,7 @@ export class ConversationsService {
       const result = await this.llmService.streamChatCompletion({
         model: payload.model,
         messages: enrichedMessageHistory,
+        profile: 'general_profile',
         onDelta: (delta) => {
           assistantContent += delta;
           this.writeEvent(response, 'delta', { text: delta });
