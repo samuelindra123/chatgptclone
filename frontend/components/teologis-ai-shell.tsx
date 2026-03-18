@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { BookOpenText, ChevronLeft, ChevronRight, Cross, History, Info, LibraryBig, Pencil, ScrollText, Sparkles, Trash2, Trophy } from "lucide-react";
+import { BookOpenText, ChevronLeft, ChevronRight, Cross, History, Info, LibraryBig, MoreVertical, Pencil, ScrollText, Sparkles, Trash2, Trophy } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { LoginButton } from "@/components/login-button";
 import { MessageContent } from "@/components/message-content";
@@ -272,11 +272,15 @@ function SessionItem({
             {menuOpen ? (
               <div className="relative">
                 <div 
-                  className="fixed inset-0 z-[100] cursor-default" 
-                  onClick={(e) => {
+                  className="fixed inset-0 z-[100] cursor-default bg-black/20 backdrop-blur-[1px]" 
+                  onMouseDown={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     onMenuToggle(false);
+                  }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
                   }}
                 />
                 <motion.div 
@@ -321,15 +325,12 @@ function SessionItem({
                   onMenuToggle(true);
                 }}
                 className={cn(
-                  "flex h-7 items-center gap-1 rounded-md border px-2 text-[10px] font-medium transition-all",
-                  isActive
-                    ? "border-[#d7b06e]/35 bg-[#d7b06e]/14 text-[#d7b06e]"
-                    : "border-white/10 bg-white/5 text-white/55 hover:border-[#d7b06e]/25 hover:text-[#d7b06e]"
+                  "flex size-8 items-center justify-center rounded-lg text-white/20 transition-all hover:bg-white/10 hover:text-white lg:opacity-0 lg:group-hover:opacity-100",
+                  isActive && "lg:opacity-100"
                 )}
-                aria-label="Buka popup kelola sesi"
+                aria-label="Buka menu sesi"
               >
-                <Pencil className="size-3" />
-                <span>Kelola</span>
+                <MoreVertical className="size-4" />
               </button>
             )}
           </div>
