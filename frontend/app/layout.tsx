@@ -1,8 +1,12 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { Inter, Playfair_Display } from "next/font/google";
 import { QueryProvider } from "@/components/providers/query-provider";
 import "katex/dist/katex.min.css";
 import "./globals.css";
+
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const playfair = Playfair_Display({ subsets: ["latin"], variable: "--font-playfair" });
 
 export const metadata: Metadata = {
   title: "Xynoos AI",
@@ -16,7 +20,7 @@ export default function RootLayout({
   children: ReactNode;
 }>) {
   return (
-    <html lang="id" className="dark">
+    <html lang="id" className={`dark ${inter.variable} ${playfair.variable}`}>
       <body className="antialiased">
         <QueryProvider>{children}</QueryProvider>
       </body>
